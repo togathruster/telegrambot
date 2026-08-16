@@ -1,0 +1,38 @@
+# ── account access ────────────────────────────────────────────────────
+# The session file IS your Telegram account. Not a scoped token, not
+# revocable per-app. Anyone with this file is logged in as you.
+*.session
+*.session-journal
+secrets/
+.env
+
+# ── other people's messages ───────────────────────────────────────────
+# Every one of these contains real conversations from your chats.
+examples.jsonl          # your messages, verbatim
+facts/                  # profiles of your friends, written by the model
+logs/                   # prompt dumps hold entire conversations
+*.db                    # audit log: every message seen, every reply drafted
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ── your voice ────────────────────────────────────────────────────────
+# persona.md describes how you write, quotes your real messages, and names
+# people you know. persona.example.md is the template that gets committed.
+persona.md
+
+# ── python ────────────────────────────────────────────────────────────
+.venv/
+venv/
+*_venv/
+.venv_*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── macos / editors ───────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp

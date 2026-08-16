@@ -1,0 +1,6 @@
+telethon>=1.36
+ollama>=0.4
+pydantic>=2.7
+PyYAML>=6.0
+aiosqlite>=0.20
+python-dotenv>=1.0

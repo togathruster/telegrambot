@@ -1,0 +1,75 @@
+# Per-chat behaviour. Edited live: the bot re-reads this file when it changes.
+#
+# mode:
+#   off   - never reply (default for everything)
+#   draft - propose a reply in Saved Messages, you approve it
+#   auto  - send directly after a typing delay
+#
+# Modes changed at runtime with /mode are stored in the database and take
+# precedence over this file. Use `/mode <chat> clear` to fall back to here.
+
+defaults:
+  mode: "off"
+  cooldown_seconds: 15          # min seconds between replies in the same chat
+  context_messages: 15           # how much history the model sees
+  quiet_hours: "02:00-08:00"     # local time; null to disable
+  require_mention_in_groups: true
+  max_replies_per_day: 100        # per chat
+  persona_notes: ""
+
+# Global safety rails
+global_max_replies_per_day: 500
+require_prior_outgoing: true     # never reply in a chat you've never spoken in
+reply_to_media_only: false       # ignore stickers/photos with no caption
+min_typing_seconds: 1.5
+max_typing_seconds: 7.0
+generation_timeout_seconds: 90
+
+# Stage 1: a small model labels every message before the writer sees it.
+# Only these labels get through. Labels: SAFE FACT MONEY PLAN SENSITIVE OTHER
+#   SAFE      banter, reactions, acknowledgements, already-settled things
+#   FACT      needs something only you know
+#   MONEY     prices, debts, splitting, owing
+#   PLAN      times, dates, availability, commitments
+#   SENSITIVE health, mood, relationships, arguments
+#   OTHER     unclear — deliberately not allowed
+classifier_enabled: true
+classifier_allow: ["SAFE"]
+classifier_timeout_seconds: 30
+
+# Stage 3: a critic reads the draft back against the conversation before it
+# is sent. On rejection the writer is told what was wrong and gets one retry;
+# if that also fails the reply is dropped. Costs one extra model call per
+# reply — set verify_enabled: false if latency matters more than accuracy.
+verify_enabled: true
+verify_max_retries: 3
+verify_timeout_seconds: 45
+
+# Queue. Messages are not answered on arrival — they wait for the burst to
+# finish, then get one reply between them.
+#   debounce      quiet gap after the newest message before answering
+#   max_wait      answer anyway once the oldest has waited this long
+#   max_age       give up entirely; a 45-minute-old "lol" isn't worth answering
+#   reply_to_threshold
+#                 use Telegram's reply marker only when this many messages
+#                 have landed since. In a live exchange people just talk.
+queue_tick_seconds: 2
+queue_debounce_seconds: 10
+queue_max_wait_seconds: 90
+queue_max_age_minutes: 45
+reply_to_threshold: 5
+
+# Retrieval: pull similar past exchanges out of your own history.
+# Populate it with: python -m scripts.build_context
+retrieval_enabled: true
+retrieval_k: 4
+retrieval_min_score: 0.45
+retrieval_same_chat_only: false
+
+# Per-chat overrides. Key by numeric chat id or @username.
+# Find ids with /status after the bot has seen a message from the chat.
+# chats:
+#   "-1234567ß":
+#     mode: "auto"
+#     require_mention_in_groups: false
+  
