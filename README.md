@@ -1,8 +1,5 @@
 # telegram-reply
 
-A Telegram userbot that replies from your own account using local models on
-your machine.
-
 Blame Silicon Valley season 6, where Gilfoyle wires up a chatbot to handle his
 conversations with Dinesh and Dinesh happily talks to it for ages without
 noticing. This is the same idea with worse funding: it runs entirely on your
@@ -34,6 +31,10 @@ flowchart TD
     classDef quiet fill:#7f1d1d,stroke:#ef4444,color:#fff
     class X quiet
 ```
+
+Every branch that stops early is logged with its reason.
+[ARCHITECTURE.md](ARCHITECTURE.md) has the full version, including every way a
+message gets dropped and why.
 
 
 ## Setup
