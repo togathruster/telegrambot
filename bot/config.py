@@ -284,6 +284,42 @@ def session_path(session: str, root: Path) -> Path:
     return p
 
 
+TEMP_SESSION_PREFIX = ".login-"
+
+
+def temp_session(root: Path) -> Path:
+    """A throwaway name to log into before the account is known.
+
+    Telethon has to open the session file before Telegram says who you are,
+    so the real name can only be applied afterwards.
+    """
+    return session_path(f"./{SECRETS_DIR}/{TEMP_SESSION_PREFIX}{os.getpid()}.session", root)
+
+
+def account_session_name(me) -> str:
+    """File-safe name for the account that just logged in.
+
+    Username where there is one, numeric id otherwise — a phone-only account
+    has no username, and bots always do.
+    """
+    raw = (getattr(me, "username", None) or "").strip() or str(me.id)
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in raw)
+    return safe or str(me.id)
+
+
+def rename_session(path: Path, name: str) -> Path:
+    """Move a freshly written session onto its real name.
+
+    Telethon leaves sidecar files (-journal, -wal) next to the database; they
+    have to travel with it. The client must already be disconnected — Windows
+    refuses to move a file SQLite still holds open.
+    """
+    target = path.with_name(f"{name}.session")
+    for f in sorted(path.parent.glob(f"{path.name}*")):
+        os.replace(f, target.with_name(target.name + f.name[len(path.name):]))
+    return target
+
+
 def find_session(root: Path) -> Path | None:
     """The one session in secrets/, or None if login hasn't run yet.
 

@@ -144,7 +144,8 @@ class OllamaBackend:
     raises the token budget so the reasoning has room to finish.
     """
 
-    def __init__(self, host: str, model: str, temperature: float = 0.8) -> None:
+    def __init__(self, host: str, model: str, temperature: float = 0.8,
+                 num_predict: Optional[int] = None) -> None:
         from ollama import AsyncClient  # imported lazily so tests need no server
 
         self.client = AsyncClient(host=host)
@@ -153,8 +154,13 @@ class OllamaBackend:
         self.think = os.getenv("OLLAMA_THINK", "0") in ("1", "true", "True")
         self.keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 
-        default_predict = 1024 if self.think else 160
-        self.num_predict = int(os.getenv("OLLAMA_NUM_PREDICT", default_predict))
+        # An explicit budget wins: the default below is sized for a Telegram
+        # reply, and anything writing a document needs far more room. Without
+        # this, persona.md and facts/ were silently cut off mid-sentence.
+        if num_predict is None:
+            default_predict = 1024 if self.think else 160
+            num_predict = int(os.getenv("OLLAMA_NUM_PREDICT", default_predict))
+        self.num_predict = int(num_predict)
         if self.think and self.num_predict < 512:
             log.warning(
                 "OLLAMA_THINK=1 with num_predict=%d — reasoning will likely be "
@@ -193,6 +199,15 @@ class OllamaBackend:
                     "will reason inline and may be truncated. pip install -U ollama"
                 )
             resp = await self.client.chat(**kwargs)
+
+        # "length" means the model was still writing when the budget ran out.
+        # Silent truncation is how persona.md ended mid-bullet, so say so.
+        if resp.get("done_reason") == "length":
+            log.warning(
+                "%s hit the %d-token limit and was cut off mid-output — "
+                "raise num_predict for this call",
+                self.model, self.num_predict,
+            )
 
         message = resp.get("message") or {}
         # newer Ollama returns reasoning separately; content is already clean
@@ -244,12 +259,28 @@ async def check_models(host: str, required: list[str]) -> list[str]:
     return missing
 
 
-def make_backend(name: str, host: str, model: str) -> Backend:
+# Writing persona.md or a chat profile is a different job from writing a
+# three-word reply: it needs room to finish, and less randomness than the
+# voice-matching the reply temperature is tuned for.
+LONGFORM_PREDICT = 2048
+LONGFORM_TEMPERATURE = 0.5
+
+
+def make_backend(name: str, host: str, model: str,
+                 num_predict: Optional[int] = None,
+                 temperature: float = 0.8) -> Backend:
     if name == "canned":
         return CannedBackend()
     if name == "ollama":
-        return OllamaBackend(host=host, model=model)
+        return OllamaBackend(host=host, model=model, temperature=temperature,
+                             num_predict=num_predict)
     raise SystemExit(f"Unknown BACKEND={name!r}. Use 'ollama' or 'canned'.")
+
+
+def make_longform_backend(name: str, host: str, model: str) -> Backend:
+    """Backend for documents — persona.md, chat profiles — not chat replies."""
+    return make_backend(name, host, model, num_predict=LONGFORM_PREDICT,
+                        temperature=LONGFORM_TEMPERATURE)
 
 
 async def generate_reply(

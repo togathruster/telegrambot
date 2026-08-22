@@ -3,8 +3,12 @@
 
     python -m scripts.export_examples --dialogs 20 --per-dialog 8
 
-Walks your private chats, finds places where someone said something and you
-replied, and writes {"them": ..., "me": ...} pairs to examples.jsonl.
+Walks your chats, finds places where someone said something and you replied,
+and writes {"them": ..., "me": ...} pairs to examples.jsonl.
+
+`python -m bot.main` does this for you on a fresh install. This script is for
+re-running it with different settings — a deeper scan, more chats, --loose —
+without redoing the rest of setup. The extraction logic lives in bot/harvest.py.
 
 This never leaves your machine. Read the output before using it and delete
 anything you would not want a local model conditioning on.
@@ -14,53 +18,28 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
-import re
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 from telethon import TelegramClient
-from telethon.tl.types import User
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from bot.config import resolve_session  # noqa: E402
+from bot.harvest import (  # noqa: E402
+    extract_pairs,
+    is_group_dialog,
+    matches,
+    normalise_targets,
+    read_messages,
+    wanted,
+    write_examples,
+)
 
 OUT = ROOT / "examples.jsonl"
-
-URL_RE = re.compile(r"https?://\S+")
-# 1, not 2: in Chinese a single character ("好", "在", "要") is a whole reply.
-# A 2-char floor silently discarded most CJK messages.
-MIN_CHARS = 1
-MAX_CHARS = 220
-
-
-def matches(dialog, targets: list[str]) -> bool:
-    """True if the dialog matches any target: id, @username, or name substring."""
-    name = (dialog.name or "").lower()
-    username = (getattr(dialog.entity, "username", None) or "").lower()
-    ids = {str(dialog.id), str(dialog.id).lstrip("-")}
-    # supergroup ids appear as -100XXXXXXXXXX; accept the bare form too
-    if str(dialog.id).startswith("-100"):
-        ids.add(str(dialog.id)[4:])
-    for t in targets:
-        if t in ids or (username and t == username) or (t and t in name):
-            return True
-    return False
-
-
-def usable(text: str) -> bool:
-    text = text.strip()
-    if not (MIN_CHARS <= len(text) <= MAX_CHARS):
-        return False
-    if text.startswith("/"):
-        return False
-    if URL_RE.search(text):
-        return False
-    return True
 
 
 async def main() -> None:
@@ -113,7 +92,7 @@ async def main() -> None:
     if not session.exists():
         sys.exit(
             f"No session at {session}\n"
-            "Run `python -m scripts.login` first — this script reads your history "
+            "Run `python -m bot.main` first — this script reads your history "
             "and needs an authenticated session."
         )
 
@@ -124,19 +103,13 @@ async def main() -> None:
 
     pairs: list[dict] = []
     scanned = 0
-    targets = [t.strip().lower().lstrip("@") for t in args.chat if t.strip()]
+    targets = normalise_targets(args.chat)
 
     async for dialog in client.iter_dialogs():
         if not targets and scanned >= args.dialogs:
             break
-
-        if args.groups:
-            if not (dialog.is_group and not dialog.is_channel):
-                continue
-        else:
-            if not isinstance(dialog.entity, User) or dialog.entity.bot:
-                continue
-
+        if not wanted(dialog, args.groups):
+            continue
         if targets and not matches(dialog, targets):
             continue
 
@@ -146,72 +119,15 @@ async def main() -> None:
             continue
 
         scanned += 1
-
-        msgs = [m async for m in client.iter_messages(dialog, limit=args.scan)]
-        msgs.reverse()
-
-        found = 0
-        mine = sum(1 for m in msgs if m.out)
-
-        if args.groups:
-            # In a group the message before yours is usually unrelated. Only
-            # trust explicit replies: you replied to them, so that IS the pair.
-            # --loose falls back to adjacency when you rarely use reply.
-            by_id = {m.id: m for m in msgs}
-            replies = orphan = filtered = 0
-
-            for cur in msgs:
-                if found >= args.per_dialog:
-                    break
-                if not cur.out or not cur.reply_to_msg_id:
-                    continue
-                replies += 1
-                prev = by_id.get(cur.reply_to_msg_id)
-                if prev is None:
-                    orphan += 1  # target older than --scan
-                    continue
-                if prev.out:
-                    continue
-                them, me = (prev.message or "").strip(), (cur.message or "").strip()
-                if usable(them) and usable(me):
-                    pairs.append({"them": them, "me": me})
-                    found += 1
-                else:
-                    filtered += 1
-
-            if args.loose and found < args.per_dialog:
-                for prev, cur in zip(msgs, msgs[1:]):
-                    if found >= args.per_dialog:
-                        break
-                    if prev.out or not cur.out or cur.reply_to_msg_id:
-                        continue
-                    them = (prev.message or "").strip()
-                    me = (cur.message or "").strip()
-                    if usable(them) and usable(me):
-                        pairs.append({"them": them, "me": me})
-                        found += 1
-
-            detail = (
-                f"scanned {len(msgs)}, {mine} from you, {replies} were replies"
-            )
-            if orphan:
-                detail += f", {orphan} pointed past --scan"
-            if filtered:
-                detail += f", {filtered} dropped by the length/url filter"
-            print(f"{dialog.name}: {found}  ({detail})")
-            continue
-        else:
-            for prev, cur in zip(msgs, msgs[1:]):
-                if found >= args.per_dialog:
-                    break
-                if prev.out or not cur.out:
-                    continue
-                them, me = (prev.message or "").strip(), (cur.message or "").strip()
-                if usable(them) and usable(me):
-                    pairs.append({"them": them, "me": me})
-                    found += 1
-
-        print(f"{dialog.name}: {found}  (scanned {len(msgs)}, {mine} from you)")
+        msgs = await read_messages(client, dialog, args.scan)
+        h = extract_pairs(
+            msgs,
+            is_group_dialog(dialog),
+            loose=args.loose,
+            limit=args.per_dialog,
+        )
+        pairs.extend(h.pairs)
+        print(f"{dialog.name}: {len(h.pairs)}  ({h.explain()})")
 
     if args.list:
         await client.disconnect()
@@ -222,17 +138,10 @@ async def main() -> None:
         await client.disconnect()
         return
 
-    lines = "\n".join(json.dumps(p, ensure_ascii=False) for p in pairs)
-    if args.append and OUT.exists():
-        existing = OUT.read_text(encoding="utf-8").rstrip("\n")
-        OUT.write_text(
-            f"{existing}\n{lines}\n" if lines else f"{existing}\n",
-            encoding="utf-8",
-        )
-        print(f"\nappended {len(pairs)} pairs to {OUT}")
-    else:
-        OUT.write_text(lines + "\n", encoding="utf-8")
-        print(f"\nwrote {len(pairs)} pairs to {OUT}")
+    appending = args.append and OUT.exists()
+    write_examples(pairs, OUT, append=args.append)
+    print(f"\n{'appended' if appending else 'wrote'} {len(pairs)} pairs to {OUT}")
+
     if not pairs:
         print(
             "\nnothing found. the counts above say why:\n"
@@ -241,7 +150,6 @@ async def main() -> None:
             "  'pointed past'      -> raise --scan (try 2000)\n"
             "  'dropped by filter' -> messages were links or over 220 chars"
         )
-    print("read it over and delete anything private before running the bot")
 
     await client.disconnect()
 

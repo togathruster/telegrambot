@@ -75,10 +75,6 @@ additionally dumps every prompt and raw model output to `logs/prompts/`, which
 is the only way to see what the model actually received.
 
 
-```bash
-python -m scripts.login         # one time; creates secrets/<your-username>.session
-```
-
 **2. Install Models.**
 
 macOS: `brew install ollama && brew services start ollama`
@@ -94,42 +90,51 @@ ollama pull qwen3:4b           # classifier
 ollama pull nomic-embed-text   # retrieval
 ```
 
-**3. Set up your profile.**
-
-List your chats and their IDs:
-
-```bash
-python -m scripts.export_examples --groups --list
-```
-
-Pull out your convos:
-
-```bash
-python -m scripts.export_examples --groups --chat "chat/group name" --per-dialog 25
-```
-
-Read `examples.jsonl`, delete anything private, cut near-duplicates.
-
-Then dump it into an LLM to create the persona.md file.
-Make sure to attach the persona.example.file so the LLM knows what to do.
-
-**4. Chat Context.**
-
-Embeds every exchange where you replied, and writes `facts/<chat_id>.md`
-covering who's in the chat, recurring topics, and running jokes.
-
-**Read those
-files.** The model may have invented things, and they go into every prompt for
-that chat.
-
-```bash
-python -m scripts.build_context --chat "chat/group name" --scan 8000 --profile
-```
-
-**5. Finally can start the bot.**
+**3. Start it.**
 
 ```bash
 python -m bot.main
+```
+
+That is the whole setup. On a fresh install the bot notices what is missing,
+walks you through it, and then starts in the same run:
+
+1. **Login** — Telegram texts you a code. The session is saved as
+   `secrets/<your-username>.session`, named after whoever logged in.
+2. **Pick chats** — your chats are listed with numbers; type `1,4,7`, `1-5`,
+   or `all`. Groups you actually talk in give the best result.
+3. **`examples.jsonl`** — finds places where someone spoke and you answered.
+4. **`persona.md`** — the local model reads those examples and drafts your
+   voice, then shows it to you before anything is written: accept, regenerate,
+   or open it in `$EDITOR`. **Read it.** It goes into every prompt, and the
+   model may have invented habits you do not have.
+5. **`facts/` and retrieval memory** — embeds your history and writes a profile
+   per chat. **Read those too**, for the same reason.
+6. **`config.yaml`** — the chats you picked are set to `auto`.
+
+`auto` sends replies as you, with no approval step. Set a chat to `draft` in
+`config.yaml` to approve each one from Saved Messages instead, or keep
+`SHADOW=1` in `.env` so nothing sends at all while you watch what it would say.
+
+Setup only runs the steps whose files are missing, so if it dies halfway
+through, just run it again.
+
+| flag | effect |
+|---|---|
+| `--setup` | redo every step, overwriting what is already there |
+| `--setup-only` | set up and exit, without starting the bot |
+| `--no-setup` | never prompt; exit listing what is missing (servers, CI) |
+
+### Re-running one piece
+
+The scripts are still there for finer control, and run the same code the
+wizard does:
+
+```bash
+python -m scripts.login                             # re-auth, or switch account
+python -m scripts.export_examples --groups --list   # list chats and their ids
+python -m scripts.export_examples --groups --chat "uni bois" --per-dialog 25 --loose
+python -m scripts.build_context --chat "uni bois" --scan 8000 --profile
 ```
 
 
@@ -211,12 +216,19 @@ bot/generate.py   backends, output cleaning, repetition guard
 bot/verify.py     stage 3: the critic and its retry feedback
 bot/approval.py   drafts in Saved Messages
 bot/control.py    slash commands
-bot/main.py       telethon wiring, worker loop
+bot/harvest.py    reading your history -> examples, memory, chat profiles
+bot/persona.py    drafting persona.md from your own messages
+bot/setup.py      first-run wizard; UI-agnostic, console prompter included
+bot/main.py       entry point: sets up if needed, then the worker loop
 
-scripts/login.py           one-time session creation
-scripts/export_examples.py harvest your own messages
-scripts/build_context.py   embed history, write facts/
+scripts/login.py           re-auth, or log in as another account
+scripts/export_examples.py re-harvest examples with different settings
+scripts/build_context.py   re-embed history, rewrite facts/
 ```
+
+`bot/setup.py` holds no terminal code beyond `ConsolePrompter`. Every step
+asks its questions through the `Prompter` protocol, so the same setup can be
+driven by a web frontend by supplying a different implementation.
 
 ## Keeping it running
 

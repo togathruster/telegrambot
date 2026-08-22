@@ -8,6 +8,7 @@ cooldown is in force. See bot/queue.py for why.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 import os
@@ -47,6 +48,7 @@ from .queue import (
 )
 from .retrieve import SCHEMA as MEMORY_SCHEMA
 from .retrieve import Embedder, format_retrieved, search
+from .setup import ConsolePrompter, detect, run_setup, summarise
 from .store import Store
 from .verify import feedback_for, verify
 
@@ -71,7 +73,8 @@ class Bot:
         self.session = resolve_session(env.session, ROOT)
         if not self.session.exists():
             raise SystemExit(
-                f"No session at {self.session}\nRun `python -m scripts.login` first."
+                f"No session at {self.session}\n"
+                "Run `python -m bot.main` — it will log you in."
             )
         self.client = TelegramClient(str(self.session), env.api_id, env.api_hash)
 
@@ -595,14 +598,14 @@ class Bot:
                          self.env.embed_model, row["n"])
             else:
                 log.warning("retrieval on but memory is empty — "
-                            "run scripts/build_context.py")
+                            "run `python -m bot.main --setup`")
         available = self.facts.available()
         if available:
             log.info("facts: %s", ", ".join(available))
         elif self.facts.global_facts():
             log.info("facts: legacy facts.md only")
         else:
-            log.warning("no facts files — run scripts/build_context.py --profile")
+            log.warning("no facts files — run `python -m bot.main --setup`")
         log.info(
             "queue: debounce %ss, max wait %ss, expire %smin, reply-to past %d msgs",
             conf.queue_debounce_seconds, conf.queue_max_wait_seconds,
@@ -614,19 +617,66 @@ class Bot:
         if self.env.shadow:
             log.warning("SHADOW MODE — replies are logged, never sent")
         if not self.examples:
-            log.warning("no examples.jsonl — run scripts/export_examples.py")
+            log.warning("no examples.jsonl — run `python -m bot.main --setup`")
 
         await self.client.run_until_disconnected()
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(
+        prog="python -m bot.main",
+        description="Run the bot. On a fresh install it sets itself up first.",
+    )
+    ap.add_argument(
+        "--setup",
+        action="store_true",
+        help="re-run setup even if everything is already in place",
+    )
+    ap.add_argument(
+        "--no-setup",
+        action="store_true",
+        help="never run setup; fail instead if something is missing",
+    )
+    ap.add_argument(
+        "--setup-only",
+        action="store_true",
+        help="run setup and exit without starting the bot",
+    )
+    args = ap.parse_args()
+
     load_dotenv(ROOT / ".env")
     env = Env.load()
-    bot = Bot(env)
+
     try:
-        asyncio.run(bot.run())
+        asyncio.run(_start(env, args))
     except KeyboardInterrupt:
         print("\nstopped", file=sys.stderr)
+
+
+async def _start(env: Env, args) -> None:
+    """Set up if needed, then run. Setup owns the session until it hands over."""
+    state = detect(env, ROOT)
+
+    if args.no_setup:
+        if not state.complete:
+            raise SystemExit(
+                "\nNot ready to run, and --no-setup was given. Missing:\n"
+                + "\n".join(f"  - {m}" for m in state.missing())
+                + "\n\nDrop --no-setup to fix this interactively.\n"
+            )
+    elif args.setup or not state.complete:
+        prompter = ConsolePrompter()
+        result = await run_setup(env, ROOT, prompter, force=args.setup)
+        summarise(result, prompter)
+        if args.setup_only:
+            return
+        print()
+
+    if args.setup_only:
+        print("nothing to set up — everything is already in place")
+        return
+
+    await Bot(env).run()
 
 
 if __name__ == "__main__":
