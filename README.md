@@ -62,17 +62,24 @@ If PowerShell refuses to run the activate script:
 cp .env.example .env            # Windows:  copy .env.example .env
 ```
 
-Fill in `TG_API_ID` and `TG_API_HASH`
+Fill in `TG_API_ID` and `TG_API_HASH`. Everything else in that file has a
+working default and is commented out.
 
-Include `SHADOW=0` to skip the verification mode.
-Default is `SHADOW=1`, nothing sends in the chat.
-Drafts land in Saved Messages. Reply `ok` to send, `no`
-to drop, or type your own version and that goes instead.
-Corrections to the bot personality can be fix in `persona.md`.
+`SHADOW=1` (the default) writes and logs replies but never sends them. Leave
+it on until you have read a few and are happy with what it would have said.
+`SHADOW=0` lets them out.
 
-`LOG_PROMPTS=1`
-additionally dumps every prompt and raw model output to `logs/prompts/`, which
-is the only way to see what the model actually received.
+Sending and approval are separate things. A chat set to `draft` in
+`config.yaml` posts its reply to your Saved Messages first — answer `ok` to
+send it, `no` to drop it, or type your own version and that goes instead. A
+chat set to `auto` sends with no approval step, and setup puts the chats you
+pick on `auto`. On a fresh install `SHADOW=1` is the only thing between the
+bot and live messages.
+
+Fix how it sounds by editing `persona.md`.
+
+`LOG_PROMPTS=1` dumps every prompt and raw model output to `logs/prompts/`,
+which is the only way to see what the model actually received.
 
 
 **2. Install Models.**
