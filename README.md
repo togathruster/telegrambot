@@ -8,30 +8,50 @@ Telegram tolerates third-party clients but flags accounts that behave like
 spam, so try not to reduce the ratelimits. The people you talk to won't know
 a model wrote the reply.
 
-**Requirements:** macOS, Linux, or Windows · Python 3.11 to 3.13 (3.14 is
-untested with Telethon) · Ollama · ~12 GB free disk for the three models.
+**Requirements:** macOS, Linux, or Windows · Python 3.11 to 3.14 · Ollama ·
+~12 GB free disk for the three models.
 16 GB RAM is the realistic floor for `qwen3:14b`; on 8 GB use `qwen3:8b`.
 
 ## How it works
 
-```
-message arrives
-   ↓
-GATE          identity, chat mode, group mention, content     (no model)
-   ↓
-QUEUE         wait for the burst to settle, coalesce, hold on cooldown
-   ↓
-CLASSIFY      qwen3:4b          SAFE / FACT / MONEY / PLAN / SENSITIVE / OTHER
-   ↓                            only SAFE proceeds (settings in yaml file)
-RETRIEVE      nomic-embed-text  how you answered similar things before
-   ↓
-WRITE         qwen3:14b         persona + facts + retrieved + live history
-   ↓
-CHECK         <skip>, assistant-tells, overlong, repeat of a recent reply
-   ↓
-SEND          typing delay; reply-to only if the thread has moved on
-   ↓
-LOG           log using sqlite3
+```mermaid
+flowchart TD
+    IN["message arrives"] --> G1{"permanent checks<br>no model calls"}
+    G1 -->|"own or bot sender, mode off,<br>no mention in group, command, empty"| D1["discard, log the reason"]
+    G1 -->|"passes"| Q[("queued in SQLite")]
+
+    Q --> TICK["worker tick"]
+    TICK --> READY{"burst settled?"}
+    READY -->|"still arriving<br>(10s debounce, 90s cap)"| Q
+    READY -->|"queued over 45 min"| D2["expire unanswered"]
+    READY -->|"ready"| G2{"temporary checks"}
+
+    G2 -->|"quiet hours, cooldown,<br>globally off"| Q
+    G2 -->|"never spoken here,<br>daily cap reached"| D3["drop, log the reason"]
+    G2 -->|"passes"| CLS["CLASSIFY qwen3:4b"]
+
+    CLS -->|"FACT, MONEY, PLAN,<br>SENSITIVE, OTHER"| D4["stay silent, log the label"]
+    CLS -->|"SAFE"| RET["RETRIEVE nomic-embed-text<br>how you answered before"]
+    RET --> WR["WRITE qwen3:14b<br>persona, facts, examples,<br>retrieved, live history"]
+
+    WR --> CLEAN{"usable draft?"}
+    CLEAN -->|"skip sentinel, empty,<br>repeats a recent reply"| D5["drop, log the reason"]
+    CLEAN -->|"yes"| CRIT{"CHECK critic qwen3:14b"}
+    CRIT -->|"FAIL, retries left"| WR
+    CRIT -->|"FAIL, out of retries"| D6["drop, log the reason"]
+    CRIT -->|"PASS"| SH{"SHADOW=1?"}
+
+    SH -->|"yes"| D7["log what it would<br>have sent, send nothing"]
+    SH -->|"no"| MODE{"chat mode"}
+    MODE -->|"draft"| SAV["post to Saved Messages,<br>you reply ok or no"]
+    MODE -->|"auto"| SEND["typing delay, then send"]
+    SAV --> LOG[("every decision logged")]
+    SEND --> LOG
+
+    classDef stop fill:#7f1d1d,stroke:#ef4444,color:#fff
+    classDef store fill:#1e3a5f,stroke:#60a5fa,color:#fff
+    class D1,D2,D3,D4,D5,D6,D7 stop
+    class Q,LOG store
 ```
 
 
@@ -101,6 +121,46 @@ ollama pull nomic-embed-text   # retrieval
 
 ```bash
 python -m bot.main
+```
+
+```mermaid
+flowchart TD
+    A["python -m bot.main"] --> B{"what is missing?"}
+    B -->|"nothing"| RUN(["start the bot"])
+    B -->|"something"| MOD{"Ollama models pulled?"}
+    MOD -->|"no"| MX["stop and print the<br>ollama pull commands"]
+    MOD -->|"yes"| L{"session already exists?"}
+
+    L -->|"yes"| PICK
+    L -->|"no"| LOGIN["phone number, code, 2FA"]
+    LOGIN --> NAME["save as<br>secrets/username.session"]
+    NAME --> PICK["pick chats from a<br>numbered list: 1,4,7 or all"]
+
+    PICK --> HARV["read your history,<br>keep pairs where you replied"]
+    HARV --> THIN{"fewer than 12<br>pairs in a group?"}
+    THIN -->|"yes"| LOOSE["also pair adjacent<br>messages, and say so"]
+    THIN -->|"no"| EXJ
+    LOOSE --> EXJ[("examples.jsonl")]
+
+    EXJ --> DRAFT["qwen3:14b reads them<br>and drafts your voice"]
+    DRAFT --> FLAG["flag any line the<br>evidence does not support"]
+    FLAG --> REV{"accept, regenerate<br>or edit?"}
+    REV -->|"regenerate"| DRAFT
+    REV -->|"edit"| ED["open in $EDITOR"]
+    ED --> REV
+    REV -->|"accept"| PM[("persona.md")]
+
+    PM --> EMB["embed every exchange"]
+    EMB --> MEM[("memory table")]
+    MEM --> PROF["profile each chat<br>with qwen3:14b"]
+    PROF --> FACTS[("facts/chat_id.md")]
+    FACTS --> CFG["write picked chats<br>into config.yaml as auto"]
+    CFG --> RUN
+
+    classDef stop fill:#7f1d1d,stroke:#ef4444,color:#fff
+    classDef file fill:#1e3a5f,stroke:#60a5fa,color:#fff
+    class MX stop
+    class EXJ,PM,MEM,FACTS file
 ```
 
 That is the whole setup. On a fresh install the bot notices what is missing,
