@@ -249,27 +249,36 @@ async def store_memory(store, embedder, chat_id: int, chat_name: str,
 # ------------------------------------------------------------------ profile
 
 PROFILE_SYSTEM = """\
-You are reading a transcript of a group chat to build a short factual profile
-for someone called {name}.
+You are reading a real group chat and writing notes for a model that will
+reply in it as someone called {name}.
 
-Write plain markdown with these sections, and nothing else:
+Write markdown, these sections only, and only what the transcript shows:
 
 ## Who is in this chat
-One line per person who speaks often: their name and anything durable and
-useful about them (what they do, their relationship to {name}, what they
-usually talk about).
+One line per person who speaks often. Their name, then the specific things the
+transcript proves about them: what they do, what they always bring up, how
+they relate to {name}. Facts, not descriptions of their manner.
 
 ## Recurring topics
-The things this group actually discusses, as a short list.
+What this group actually talks about. Name the specific things — the gym they
+go to, the trip they are planning, the hardware they argue over.
+
+## In-jokes and shorthand
+Nicknames, running jokes and words that would mean nothing to an outsider,
+each with what it refers to. Quote them exactly.
 
 ## How {name} talks here
-How {name}'s messages in this chat differ from how they might write elsewhere:
-language, formality, in-jokes, nicknames.
+What is different about {name}'s messages in this chat: which language, which
+nicknames, how short, who they answer.
 
 Rules:
-- Only write what the transcript supports. Do not guess or invent.
-- Leave a section out entirely if the transcript does not support it.
-- No preamble, no closing remarks, no meta-commentary about the transcript.
+- Only what the transcript supports. Never guess and never fill a gap.
+- Leave out any section the transcript does not support, up to all of them.
+- The words "casual", "informal", "conversational" and "friendly" must not
+  appear anywhere in your output, and neither must "uses slang". They are true
+  of every group chat. The same goes for any other line that fits most chats.
+- Spell names exactly as the transcript spells them.
+- Output the markdown only. No preamble, no account of what you did.
 """
 
 

@@ -193,13 +193,13 @@ maximum wait answers anyway.
 Cooldown and quiet hours delay a message rather than discarding it. Daily caps
 and the stranger filter do discard.
 
-Anything still queued after 45 minutes expires. Reply sequences follows the
+Anything still queued after 45 minutes expires. Reply order follows this
 hierarchy: DMs -> replies to you -> plain mentions -> whoever waited
 longest.
 
 ## Safety rails
 
-- every chat is `off` until you name it
+- every chat is `off` until it is named in `config.yaml`, setup included
 - classifier allow-list, `["SAFE"]` by default
 - cooldown per chat, daily caps per chat and global
 - stranger filter: it never speaks in a chat you've never spoken in
@@ -233,7 +233,8 @@ scripts/export_examples.py re-harvest examples with different settings
 scripts/build_context.py   re-embed history, rewrite facts/
 ```
 
-`bot/setup.py` holds no terminal code beyond `ConsolePrompter`. Every step
+No step in `bot/setup.py` prints or reads input itself, and
+`ConsolePrompter` is the only implementation that touches a terminal. Every step
 asks its questions through the `Prompter` protocol, so the same setup can be
 driven by a web frontend by supplying a different implementation.
 

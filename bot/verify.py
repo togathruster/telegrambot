@@ -37,6 +37,9 @@ FAIL if any of these are true:
   expressed anywhere in this conversation.
 - It agrees to or confirms anything — a time, a place, an amount, an action.
 - It reads like an assistant: helpful, explanatory, formal, or eager.
+- It is tidier than {name}'s own messages: spelling corrected, shorthand
+  written out, or punctuation and capitalisation added that they never use.
+- It opens by acknowledging the message before answering it.
 - It would make the other person confused, or ask "what do you mean?"
 - The tone is wrong for how these people talk to each other.
 - It is so vague it carries no meaning — filler like "ok" where the message

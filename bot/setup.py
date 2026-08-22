@@ -45,7 +45,7 @@ from .harvest import (
     write_facts_index,
     write_profile,
 )
-from .persona import draft_persona, save_persona
+from .persona import draft_persona, save_persona, suspect_lines
 
 # How much history each step reads. Examples only need enough to show voice;
 # memory and profiles want everything they can get.
@@ -474,6 +474,8 @@ async def run_setup(env: Env, root: Path, p: Prompter,
                         if not await p.confirm("try again?", True):
                             break
                         continue
+                for line, why in suspect_lines(text, examples):
+                    p.warn(f"{why}\n      {line}")
                 action = await p.review_persona(text)
                 if action == "accept":
                     save_persona(text, persona_file)
